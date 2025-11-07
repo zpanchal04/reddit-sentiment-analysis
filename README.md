@@ -11,17 +11,6 @@ An end-to-end sentiment analysis project for Reddit data with a modern interacti
 - **Model training UI**: Train and compare models inside the app, export results
 - **Comment analyzer**: Real-time sentiment on all comments for any Reddit post URL
 - **Reproducible notebooks**: Data collection, preprocessing, modeling, and visualization notebooks
-## Next-Gen Reddit Sentiment AI Dashboard
-
-An end-to-end sentiment analysis project for Reddit data with an interactive Streamlit dashboard. The app collects Reddit posts, cleans and labels text, trains multiple ML models, visualizes insights, and provides exportable artifacts. This README describes setup, running the dashboard, the sample-data export features (including SQL), and the AI-powered model comparison (Gemini) integration.
-
-### Key Features
-- Data collection via PRAW (Reddit), stored incrementally in JSON
-- Preprocessing and tokenization helpers in `src/preprocessor.py`
-- Rule-based VADER labeling plus ML model pipelines (TF-IDF + classifiers)
-- Interactive Streamlit dashboard (`dashboard.py`) with model training, evaluation, and exports
-- Sample data export in many formats (CSV, JSON, Excel, Parquet, Feather, HTML, XML, HDF5, Pickle, and SQL)
-- AI-generated theoretical model comparison using Google Gemini (requires `GEMINI_API_KEY`)
 
 ### Project Structure (important files)
 ```
