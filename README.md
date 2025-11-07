@@ -121,8 +121,6 @@ If you receive a 400 API_KEY_INVALID error, see the Troubleshooting section belo
 - Add Transformer-based sentiment models and a scheduled ingestion pipeline
 - Dockerize the app and add CI for tests and model artifact publishing
 
-### License
-Choose a license (e.g., MIT) and add it here.
 ### Security & Privacy
 
 - Do not commit `.env` with secrets
