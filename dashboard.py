@@ -12,9 +12,9 @@ from wordcloud import WordCloud
 from datetime import datetime
 import pickle
 import joblib
-import praw # Added for comment analyzer
-import praw.exceptions # Added for comment analyzer
-from dotenv import load_dotenv # Added for comment analyzer
+import praw
+import praw.exceptions 
+from dotenv import load_dotenv 
 try:
     # Use Google's Generative AI (Gemini) if available
     import google.generativeai as genai
@@ -69,10 +69,13 @@ def get_ai_model_comparison(selected_models):
         # Instantiate a model with safe defaults and fallbacks.
         requested_model = (
             os.getenv('GEMINI_MODEL')
-            or 'gemini-1.5-flash'
+            or 'gemini-2.5-flash'
         )
         fallback_models = [
             requested_model,            
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-flash-latest',
             'gemini-1.5-flash',
             'gemini-1.5-pro',
             'gemini-pro'
@@ -100,10 +103,11 @@ def get_ai_model_comparison(selected_models):
                     methods = getattr(m, 'supported_generation_methods', []) or []
                     if 'generateContent' in methods:
                         candidates.append(getattr(m, 'name', ''))
-                # Prefer 1.5 flash/pro variants
+                # Prefer newer flash/pro variants
                 preferred_order = [
-                    'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b',
-                    'gemini-pro'
+                    'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 
+                    'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro',
+                    'gemini-pro', 'gemma-'
                 ]
                 pick = None
                 for pref in preferred_order:
@@ -116,9 +120,13 @@ def get_ai_model_comparison(selected_models):
                     gen_model = genai.GenerativeModel(pick)
                     _ = gen_model.generate_content('ping')
                 else:
-                    raise last_err or RuntimeError('No compatible Gemini model available. Try setting GEMINI_MODEL to a supported id (e.g., gemini-1.5-flash).')
+                    if last_err:
+                        raise last_err
+                    raise RuntimeError('No compatible Gemini model available. Try setting GEMINI_MODEL to a supported id (e.g., gemini-1.5-flash).')
             except Exception as _e2:
-                raise last_err or _e2
+                if last_err:
+                    raise last_err
+                raise _e2
 
         resp = gen_model.generate_content(prompt)
         # The response object exposes .text for convenience
@@ -154,6 +162,76 @@ def get_ai_model_comparison(selected_models):
         else:
             st.info('AI analysis could not be generated. Continuing without it.')
         return None
+
+def get_ai_action_recommendation(pos_p, neg_p, neu_p, top_pos, top_neg):
+    """Get AI-generated actionable recommendations based on analyzed sentiment."""
+    if genai is None:
+        return "Google Generative AI SDK is not installed. Action recommendations disabled."
+        
+    prompt = (
+        f"Analyze this Reddit post sentiment profile: {pos_p:.1f}% Positive, {neg_p:.1f}% Negative, {neu_p:.1f}% Neutral.\n"
+        f"Some top positive comments:\n{top_pos}\n"
+        f"Some top negative comments:\n{top_neg}\n"
+        "Based on this analysis, what are the next actionable steps that should be taken by the creator or brand manager? Provide 6 to 7 short bullet points advising whether the overall response is positive, negative or neutral and what to do next. Keep each point extremely brief (maximum 10-15 words). Do not use markdown other than bullet points."
+    )
+    
+    try:
+        key_present = (
+            os.getenv('GEMINI_API_KEY')
+            or os.getenv('GEMINI_API_KEY_JSON')
+            or (getattr(st, 'secrets', None) and st.secrets.get('GEMINI_API_KEY'))
+        )
+        if not key_present:
+            return "Gemini API key not configured."
+
+        requested_model = os.getenv('GEMINI_MODEL') or 'gemini-2.5-flash'
+        fallback_models = [requested_model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        fallback_models = [m for m in fallback_models if m]
+        
+        gen_model = None
+        for m in fallback_models:
+            try:
+                gen_model = genai.GenerativeModel(m)
+                _ = gen_model.generate_content("ping")
+                break
+            except Exception:
+                gen_model = None
+                continue
+                
+        if gen_model is None:
+            try:
+                candidates = []
+                for m in genai.list_models():
+                    methods = getattr(m, 'supported_generation_methods', []) or []
+                    if 'generateContent' in methods:
+                        candidates.append(getattr(m, 'name', ''))
+                preferred_order = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-pro', 'gemma-']
+                pick = None
+                for pref in preferred_order:
+                    pick = next((c for c in candidates if pref in c), None)
+                    if pick: break
+                if not pick and candidates: pick = candidates[0]
+                if pick:
+                    gen_model = genai.GenerativeModel(pick)
+                    _ = gen_model.generate_content('ping')
+            except Exception:
+                pass
+                
+        if gen_model is None:
+            return "No compatible Gemini model available."
+            
+        resp = gen_model.generate_content(prompt)
+        response_text = getattr(resp, 'text', None)
+        if not response_text:
+            try:
+                response_text = resp.candidates[0].content[0].text
+            except Exception:
+                response_text = "No response text returned from Gemini model."
+                
+        return response_text
+    except Exception as e:
+        return f"AI recommendation failed: {str(e)}"
+
 
 # Data format support
 try:
@@ -372,15 +450,8 @@ def get_available_models():
     return {
         'Logistic Regression': LogisticRegression(random_state=42, max_iter=2000),
         'Support Vector Machine (LinearSVC)': LinearSVC(random_state=42, max_iter=2000),
-        'SVC (RBF Kernel)': SVC(random_state=42, kernel='rbf', probability=False),
         'Naive Bayes (Multinomial)': MultinomialNB(alpha=0.1),
-        'SGD Classifier': SGDClassifier(random_state=42, max_iter=2000),
-        'Passive Aggressive': PassiveAggressiveClassifier(random_state=42, max_iter=2000),
-        'Ridge Classifier': RidgeClassifier(random_state=42),
-        'KNN (k=5)': KNeighborsClassifier(n_neighbors=5),
-        'Decision Tree': DecisionTreeClassifier(random_state=42, max_depth=None),
         'Random Forest': RandomForestClassifier(random_state=42, n_estimators=300),
-        'Extra Trees': ExtraTreesClassifier(random_state=42, n_estimators=300),
         'AdaBoost': AdaBoostClassifier(random_state=42, n_estimators=200),
         'Gradient Boosting': GradientBoostingClassifier(random_state=42, n_estimators=200)
     }
@@ -1088,6 +1159,16 @@ def render_comment_analyzer():
                             st.error(f"**Score: {row['score']}** | `{row['text'][:150].strip()}...`")
                     else:
                         st.info("No negative comments found.")
+                
+                # --- AI Action Recommendations ---
+                st.subheader("🤖 AI Actionable Insights")
+                top_pos_text = "\n".join([row['text'][:150] for i, row in (pos_comments.head(3) if not pos_comments.empty else pd.DataFrame(columns=['text'])).iterrows()]) if 'pos_comments' in locals() else ""
+                top_neg_text = "\n".join([row['text'][:150] for i, row in (neg_comments.head(3) if not neg_comments.empty else pd.DataFrame(columns=['text'])).iterrows()]) if 'neg_comments' in locals() else ""
+                
+                with st.spinner("Generating AI recommendations based on comments..."):
+                    recommendation = get_ai_action_recommendation(pos_p, neg_p, neu_p, top_pos_text, top_neg_text)
+                
+                st.markdown(recommendation)
             else:
                 st.warning("No data returned. The post may have no comments or analysis failed.")
         else:
@@ -1724,10 +1805,20 @@ with tab4:
                         else:
                              st.info("No negative comments found.")
 
-
                     # --- Data Table ---
                     with st.expander("View all analyzed comments"):
                         st.dataframe(analyzed_df[['sentiment', 'score', 'author', 'text']])
+
+                    # --- AI Action Recommendations ---
+                    st.subheader("🤖 Actionable Insights")
+                    top_pos_text = "\n".join([row['text'][:150] for i, row in (pos_comments.head(3) if not pos_comments.empty else pd.DataFrame(columns=['text'])).iterrows()]) if 'pos_comments' in locals() else ""
+                    top_neg_text = "\n".join([row['text'][:150] for i, row in (neg_comments.head(3) if not neg_comments.empty else pd.DataFrame(columns=['text'])).iterrows()]) if 'neg_comments' in locals() else ""
+                    
+                    with st.spinner("Generating recommendations based on comments..."):
+                        recommendation = get_ai_action_recommendation(pos_p, neg_p, neu_p, top_pos_text, top_neg_text)
+                    
+                    st.markdown(recommendation)
+
             else:
                 st.warning("No data returned. The post may have no comments or analysis failed.")
 
